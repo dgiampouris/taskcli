@@ -22,7 +22,7 @@ $ go install
 
 Make sure to put any of the given tasks in double quotes (e.g. `"This is an example."`).
 
-```bash
+```
 $ task add "TODO an example."
 $ task list
 
@@ -32,6 +32,5 @@ Here's a list of your tasks:
 $ task delete 1
 
 Here's a list of your tasks:
-
 
 ```
