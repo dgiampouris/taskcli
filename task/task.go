@@ -4,7 +4,6 @@ import (
 	"fmt"
 	bolt "go.etcd.io/bbolt"
 	"log"
-	"math"
 	"os"
 	"strconv"
 )
@@ -78,29 +77,40 @@ func AddTask(task string) {
 			return fmt.Errorf("create bucket: %s", err)
 		}
 
-		// Set initial index value and prevent integer overflow
-		tmp := bucket.Get([]byte("lastIndex"))
-		if tmp == nil {
-			bucket.Put([]byte("lastIndex"), []byte(strconv.Itoa(0)))
-		} else if string(tmp) == string(math.MaxInt32) {
-			bucket.Put([]byte("lastIndex"), []byte(strconv.Itoa(0)))
-		}
+		/*
+			// Set initial index value and prevent integer overflow
+			tmp := bucket.Get([]byte("lastIndex"))
+			if tmp == nil {
+				bucket.Put([]byte("lastIndex"), []byte(strconv.Itoa(0)))
+			} else if string(tmp) == string(math.MaxInt32) {
+				bucket.Put([]byte("lastIndex"), []byte(strconv.Itoa(0)))
+			}
 
-		lastIndex, err := strconv.Atoi(string(bucket.Get([]byte("lastIndex"))))
-		if err != nil {
-			return fmt.Errorf("strconv atoi: %s", err)
-		}
-		lastIndex++
+			lastIndex, err := strconv.Atoi(string(bucket.Get([]byte("lastIndex"))))
+			if err != nil {
+				return fmt.Errorf("strconv atoi: %s", err)
+			}
+			lastIndex++
+		*/
 
-		err = bucket.Put([]byte(strconv.Itoa(lastIndex)), []byte(task))
+		// Generate an index for the tasks
+		// This returns an error only if the Tx is closed or not writeable.
+		// That can't happen in an Update() call so the error check is ignored.
+
+		index, _ := bucket.NextSequence()
+		id := strconv.Itoa(int(index))
+
+		err = bucket.Put([]byte(id), []byte(task))
 		if err != nil {
 			return fmt.Errorf("bucket put new task: %s", err)
 		}
 
-		err = bucket.Put([]byte("lastIndex"), []byte(strconv.Itoa(lastIndex)))
-		if err != nil {
-			return fmt.Errorf("bucket put lastIndex: %s", err)
-		}
+		/*
+			err = bucket.Put([]byte("lastIndex"), []byte(strconv.Itoa(lastIndex)))
+			if err != nil {
+				return fmt.Errorf("bucket put lastIndex: %s", err)
+			}
+		*/
 
 		return nil
 	})
@@ -136,9 +146,9 @@ func ListTasks() {
 		fmt.Printf("\nHere's a list of your tasks:\n\n")
 
 		err = bucket.ForEach(func(key, val []byte) error {
-			if string(key) == "lastIndex" {
-				return nil
-			}
+			//if string(key) == "lastIndex" {
+			//		return nil
+			//	}
 			fmt.Printf("%s. %s\n", key, val)
 			return nil
 		})
@@ -170,13 +180,48 @@ func DeleteTask(taskNum string) {
 	defer dbEncrypt()
 	defer db.Close()
 
-	if taskNum != "lastIndex" {
-		err := db.Update(func(tx *bolt.Tx) error {
-			return tx.Bucket([]byte("Tasks")).Delete([]byte(taskNum))
-		})
+	//if taskNum != "lastIndex" {
+	err := db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("Tasks"))
+		err := tx.Bucket([]byte("Tasks")).Delete([]byte(taskNum))
 
-		if err != nil {
-			log.Panic(err)
+		cursor := bucket.Cursor()
+
+		for key, val := cursor.Seek([]byte(taskNum)); key != nil; key, val = cursor.Next() {
+			temp, _ := strconv.Atoi(string(key))
+			fmt.Println(temp, string(val))
+
+			nextKey := []byte(strconv.Itoa(temp))
+			nextVal := val
+
+			currentKey := []byte(strconv.Itoa(temp - 1))
+			err = bucket.Put(currentKey, nextVal)
+			if err != nil {
+				return fmt.Errorf("bucket re-order task: %s", err)
+			}
+
+			err = bucket.Delete(nextKey)
+			if err != nil {
+				return fmt.Errorf("bucket re-order task: %s", err)
+			}
+
+			afterNextKey := []byte(strconv.Itoa(temp + 1))
+			afterNextVal := bucket.Get(afterNextKey)
+			if afterNextVal == nil {
+				err = bucket.SetSequence(uint64(temp - 1))
+				if err != nil {
+					return fmt.Errorf("bucket re-order task: %s", err)
+				}
+
+				break
+			}
+
 		}
+		return err
+	})
+
+	if err != nil {
+		log.Panic(err)
 	}
+	//}
 }
