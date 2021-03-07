@@ -1,6 +1,7 @@
 package task
 
 import (
+	"encoding/binary"
 	"fmt"
 	bolt "go.etcd.io/bbolt"
 	"log"
@@ -14,10 +15,33 @@ type Path struct {
 	key string
 }
 
+/*
+   SetPaths sets the default paths to store the db
+   and the secret key. It serves as an initializer
+   which is called in every function that needs to
+   interact with the database or the key.
+
+   Implementation details:
+   - /dev/shm/ is mostly available on linux and not available in macOs
+
+*/
 func SetPaths() *Path {
 	db := os.Getenv("HOME") + "/.tasks.db"
 	key := "/dev/shm/.taskdb"
 	return &Path{db: db, key: key}
+}
+
+/*
+   itob returns an 8-byte big endian representation of val.
+   Since everything is stored/retrieved as a []byte type
+   from boltdb, and keys are byte-sorted, indexes
+   need to be converted to the aforementioned representation.
+
+*/
+func itob(val int) []byte {
+	bytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(bytes, uint64(val))
+	return bytes
 }
 
 /*
@@ -52,20 +76,15 @@ func dbOpen() *bolt.DB {
    database. All the tasks are contained into a bucket named "Tasks".
    Since boltdb is a k/v store, the key of each task is a number, and
    the value is the task itself. The key and the value is stored as
-   a slice of bytes. Additionally, there is one key named "lastIndex"
-   which tracks the number of all the tasks ever added in the database.
-   lastIndex is used as the key for each task added in the database.
-   Everytime a task is added, lastIndex is incremented by 1.
+   a slice of bytes. Additionally, the NextSequence() method is used
+   which returns an autoincrementing int to track the number of all
+   the tasks ever added in the database. That int servers as an index
+   which is used as the key for each task added in the database.
 
    Implementation details:
-   - strconv.Itoa is used to convert int->string, which is then converted
-     to []byte, since boltdb stores everything as []byte.
-   - If lastIndex doesn't exist in the bucket then it gets created and
-     given the value of 0.
-   - If the value of lastIndex goes over the maximum value for a 32 bit
-     integer then lastIndex is set back to 0, in order to avoid an integer
-     overflow.
-   - strconv.Atoi and string() are used to convert lastIndex's value to an integer.
+   - itob is used to convert the id into a byte representation.
+   - The id has to be smaller than math.MaxInt32 to avoid int overflow.
+   - The given task cannot be emtpy.
 */
 func AddTask(task string) {
 	db := dbOpen()
@@ -78,28 +97,21 @@ func AddTask(task string) {
 			return fmt.Errorf("create bucket: %s", err)
 		}
 
-		// Set initial index value and prevent integer overflow
-		tmp := bucket.Get([]byte("lastIndex"))
-		if tmp == nil {
-			bucket.Put([]byte("lastIndex"), []byte(strconv.Itoa(0)))
-		} else if string(tmp) == string(math.MaxInt32) {
-			bucket.Put([]byte("lastIndex"), []byte(strconv.Itoa(0)))
-		}
+		// Generate an index for the tasks
+		// This returns an error only if the Tx is closed or not writeable.
+		// That can't happen in an Update() call so the error check is ignored.
 
-		lastIndex, err := strconv.Atoi(string(bucket.Get([]byte("lastIndex"))))
-		if err != nil {
-			return fmt.Errorf("strconv atoi: %s", err)
-		}
-		lastIndex++
+		index, _ := bucket.NextSequence()
+		id := int(index)
 
-		err = bucket.Put([]byte(strconv.Itoa(lastIndex)), []byte(task))
-		if err != nil {
-			return fmt.Errorf("bucket put new task: %s", err)
-		}
-
-		err = bucket.Put([]byte("lastIndex"), []byte(strconv.Itoa(lastIndex)))
-		if err != nil {
-			return fmt.Errorf("bucket put lastIndex: %s", err)
+		// Ensure id does not cause integer overflow
+		if id < math.MaxInt32 && task != "" {
+			err = bucket.Put(itob(id), []byte(task))
+			if err != nil {
+				return fmt.Errorf("bucket put new task: %s", err)
+			}
+		} else if id >= math.MaxInt32 {
+			return fmt.Errorf("\nToo many tasks!\n")
 		}
 
 		return nil
@@ -113,9 +125,7 @@ func AddTask(task string) {
 /*
    ListTasks iterates over all the keys and values within the
    boltdb database and prints each key and each value.
-   If the key == "lastIndex" then printing that key and value
-   is skipped since there is no reason for the user to know
-   the number of the last index.
+   The key is converted from []byte to int in order to be printed.
 
    Implementation details:
    - Returning nil in the ForEach method is like a loop's
@@ -136,10 +146,8 @@ func ListTasks() {
 		fmt.Printf("\nHere's a list of your tasks:\n\n")
 
 		err = bucket.ForEach(func(key, val []byte) error {
-			if string(key) == "lastIndex" {
-				return nil
-			}
-			fmt.Printf("%s. %s\n", key, val)
+			intKey := int(binary.BigEndian.Uint64(key))
+			fmt.Printf("%d. %s\n", intKey, val)
 			return nil
 		})
 
@@ -153,26 +161,61 @@ func ListTasks() {
 	if err != nil {
 		log.Panic(err)
 	}
-
 }
 
 /*
    DeleteTask deletes a task based on the index number provided.
    The only bucket to ever exist in the database is "Tasks" so
-   the deletion only takes place in that bucket.
+   the deletion only takes place in that bucket. When a task
+   gets deleted, the keys of the tasks following the deleted
+   task get decremented by 1.
 
    Implementation details:
-   - Deleting lastIndex is prohibited. No error is printed in
-     case of an invalid index number.
+   - If the id number is "" or < 1 then the deletion is skipped.
+   - nextKey and nextVal are better names for key and val since
+     cursor.Next() is executed before the first loop takes place.
 */
 func DeleteTask(taskNum string) {
 	db := dbOpen()
 	defer dbEncrypt()
 	defer db.Close()
 
-	if taskNum != "lastIndex" {
+	if taskNum != "" {
 		err := db.Update(func(tx *bolt.Tx) error {
-			return tx.Bucket([]byte("Tasks")).Delete([]byte(taskNum))
+			id, err := strconv.Atoi(taskNum)
+			if err != nil {
+				return fmt.Errorf("strconv atoi: %s", err)
+			} else if id < 1 {
+				return fmt.Errorf("\nTasks can only have a positive non-zero id!\n")
+			}
+
+			taskIndex := itob(id)
+			bucket := tx.Bucket([]byte("Tasks"))
+			err = bucket.Delete(taskIndex)
+
+			cursor := bucket.Cursor()
+			for key, val := cursor.Seek(taskIndex); key != nil; key, val = cursor.Next() {
+				nextKey := key
+				nextVal := val
+
+				currentKey := int(binary.BigEndian.Uint64(key)) - 1
+				err = bucket.Put(itob(currentKey), nextVal)
+				if err != nil {
+					return fmt.Errorf("bucket re-order task: %s", err)
+				}
+
+				err = bucket.Delete(nextKey)
+				if err != nil {
+					return fmt.Errorf("bucket re-order task: %s", err)
+				}
+			}
+
+			err = bucket.SetSequence(bucket.Sequence() - 1)
+			if err != nil {
+				return fmt.Errorf("\nSetting the bucket sequence failed!\n")
+			}
+
+			return err
 		})
 
 		if err != nil {
