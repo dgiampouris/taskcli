@@ -23,7 +23,6 @@ type Path struct {
 
    Implementation details:
    - /dev/shm/ is mostly available on linux and not available in macOs
-
 */
 func SetPaths() *Path {
 	db := os.Getenv("HOME") + "/.tasks.db"
@@ -36,7 +35,6 @@ func SetPaths() *Path {
    Since everything is stored/retrieved as a []byte type
    from boltdb, and keys are byte-sorted, indexes
    need to be converted to the aforementioned representation.
-
 */
 func itob(val int) []byte {
 	bytes := make([]byte, 8)
