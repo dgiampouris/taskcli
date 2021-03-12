@@ -24,8 +24,25 @@ type Path struct {
    Implementation details:
    - /dev/shm/ is mostly available on linux and not available in macOs
 */
-func SetPaths() *Path {
+func SetPaths() (path *Path) {
+	defer func() {
+		if p := recover(); p != nil {
+			fmt.Printf("Path Error: %v\n", p)
+			path = &Path{db: "~/.tasks.db", key: "~/.tasksdbkey"}
+		}
+	}()
+
+	homeDir := os.Getenv("HOME")
+	if homeDir == "" {
+		log.Panic("$HOME environment variable not found! DB will be in ~/.\n")
+	}
+
 	db := os.Getenv("HOME") + "/.tasks.db"
+
+	if stat, err := os.Stat("dev/shm/"); err == nil && !stat.IsDir() {
+		log.Panic("/dev/shm does not exist, key file will be in ~/.\n")
+	}
+
 	key := "/dev/shm/.taskdb"
 	return &Path{db: db, key: key}
 }
@@ -48,13 +65,34 @@ func itob(val int) []byte {
    tasks.db, the permissions allow the owner to
    read and write, the group to read only and others
    to read only. It returns a pointer to a DB type.
+
+   Implementation details:
+   - TODO: talk about error handling
 */
-func dbOpen() *bolt.DB {
+func dbOpen() (db *bolt.DB) {
 	var path Path = *SetPaths()
+	defer func() {
+		if p := recover(); p != nil {
+			fmt.Printf("Opening the database failed!\n")
+			db = &bolt.DB{
+				StrictMode:   false,
+				NoSync:       false,
+				NoGrowSync:   false,
+				MmapFlags:    0,
+				MaxBatchSize: 0,
+				AllocSize:    0}
+		}
+	}()
+
 	if _, err := os.Stat(path.db); err == nil {
-		success := dbDecrypt()
-		if success == false {
-			log.Fatalf("Decryption failed.\n")
+		data := dbDecrypt()
+		if data == nil {
+			log.Fatal("Decryption error!")
+		}
+
+		err := os.WriteFile(path.db, data, 0644)
+		if err != nil {
+			log.Panic(err)
 		}
 	} else if os.IsNotExist(err) {
 		newDb := true
@@ -88,17 +126,21 @@ func AddTask(task string) {
 	db := dbOpen()
 	defer dbEncrypt()
 	defer db.Close()
+	defer func() {
+		if p := recover(); p != nil {
+			fmt.Printf("Adding the task failed!\n")
+		}
+	}()
 
 	err := db.Update(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists([]byte("Tasks"))
 		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
+			return err
 		}
 
 		// Generate an index for the tasks
 		// This returns an error only if the Tx is closed or not writeable.
 		// That can't happen in an Update() call so the error check is ignored.
-
 		index, _ := bucket.NextSequence()
 		id := int(index)
 
@@ -106,13 +148,13 @@ func AddTask(task string) {
 		if id < math.MaxInt32 && task != "" {
 			err = bucket.Put(itob(id), []byte(task))
 			if err != nil {
-				return fmt.Errorf("bucket put new task: %s", err)
+				return err
 			}
 		} else if id >= math.MaxInt32 {
 			return fmt.Errorf("\nToo many tasks!\n")
 		}
 
-		return nil
+		return err
 	})
 
 	if err != nil {
@@ -134,11 +176,16 @@ func ListTasks() {
 	db := dbOpen()
 	defer dbEncrypt()
 	defer db.Close()
+	defer func() {
+		if p := recover(); p != nil {
+			fmt.Printf("Listing tasks failed!\n")
+		}
+	}()
 
 	err := db.Update(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists([]byte("Tasks"))
 		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
+			return err
 		}
 
 		fmt.Printf("\nHere's a list of your tasks:\n\n")
@@ -149,11 +196,7 @@ func ListTasks() {
 			return nil
 		})
 
-		if err != nil {
-			log.Panic(err)
-		}
-
-		return nil
+		return err
 	})
 
 	if err != nil {
@@ -177,12 +220,17 @@ func DeleteTask(taskNum string) {
 	db := dbOpen()
 	defer dbEncrypt()
 	defer db.Close()
+	defer func() {
+		if p := recover(); p != nil {
+			fmt.Printf("Deleting the task failed!\n")
+		}
+	}()
 
 	if taskNum != "" {
 		err := db.Update(func(tx *bolt.Tx) error {
 			id, err := strconv.Atoi(taskNum)
 			if err != nil {
-				return fmt.Errorf("strconv atoi: %s", err)
+				return err
 			} else if id < 1 {
 				return fmt.Errorf("\nTasks can only have a positive non-zero id!\n")
 			}
@@ -199,12 +247,12 @@ func DeleteTask(taskNum string) {
 				currentKey := int(binary.BigEndian.Uint64(key)) - 1
 				err = bucket.Put(itob(currentKey), nextVal)
 				if err != nil {
-					return fmt.Errorf("bucket re-order task: %s", err)
+					return err
 				}
 
 				err = bucket.Delete(nextKey)
 				if err != nil {
-					return fmt.Errorf("bucket re-order task: %s", err)
+					return err
 				}
 			}
 
