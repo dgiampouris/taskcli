@@ -24,37 +24,25 @@ import (
      which temporarily changes the prompt and reads a password without echo.
 */
 func readPassword(newDb bool) (password []byte) {
-	var confirmPass []byte
-	defer func() {
-		if p := recover(); p != nil {
-			fmt.Printf("Password Error: %v", p)
-			password = nil
-		}
-	}()
-
 	fmt.Printf("Enter Password: ")
 	password, err := term.ReadPassword(syscall.Stdin)
 	if err != nil {
-		log.Panic(err)
+		log.Fatal(err)
 	}
 
 	if newDb == true {
-		for i := 0; i < 3; i++ {
-			fmt.Printf("\nConfirm Password: ")
-			confirmPass, err = term.ReadPassword(syscall.Stdin)
-			if err != nil {
-				log.Panic(err)
-			}
-
-			if string(password) == string(confirmPass) {
-				break
-			}
+		fmt.Printf("\nConfirm Password: ")
+		confirmPass, err := term.ReadPassword(syscall.Stdin)
+		if err != nil {
+			log.Fatal(err)
 		}
 
 		if string(password) != string(confirmPass) {
-			log.Panic("\nPasswords did not match! Please try again.")
+			log.Fatal("\nPasswords did not match! Please try again.")
 
 		}
+
+		fmt.Printf("\nA new tasks db has been created!\n")
 	}
 
 	return password
@@ -163,22 +151,21 @@ func dbEncrypt() {
    Implementation details:
    - TODO: Add details
 */
-func dbDecrypt() []byte {
+func dbDecrypt() {
 	var path Path = *SetPaths()
-	/*
-		defer func() {
-			if p := recover(); p != nil {
-				fmt.Printf("Encryption Error: %v", p)
-			}
-		}()
-	*/
+	defer func() {
+		if p := recover(); p != nil {
+			os.Remove(path.key)
+			fmt.Printf("Decryption Error: %v", p)
+		}
+	}()
 
 	encryptedData, err := os.ReadFile(path.db)
 	if err != nil {
 		log.Panic(err)
 	}
 
-	decSucc := true
+	decSuccess := true
 	var data []byte
 
 	key, err := os.ReadFile(path.key)
@@ -207,18 +194,16 @@ func dbDecrypt() []byte {
 
 	data, err = gcm.Open(nil, nonce, encryptedData, nil)
 	if err != nil {
-		decSucc = false
-		fmt.Printf("\nDecryption error!\n")
+		decSuccess = false
 	}
 
-	//err = os.WriteFile(path.db, data, 0644)
-	//if err != nil {
-	//	log.Panic(err)
-	//}
-
-	if decSucc == false {
-		return nil
+	if decSuccess == true {
+		err = os.WriteFile(path.db, data, 0644)
+		if err != nil {
+			log.Panic(err)
+		}
+	} else if decSuccess == false {
+		os.Remove(path.key)
+		log.Fatal("\nDecryption error!\n")
 	}
-
-	return data
 }

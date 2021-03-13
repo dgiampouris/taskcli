@@ -85,15 +85,7 @@ func dbOpen() (db *bolt.DB) {
 	}()
 
 	if _, err := os.Stat(path.db); err == nil {
-		data := dbDecrypt()
-		if data == nil {
-			log.Fatal("Decryption error!")
-		}
-
-		err := os.WriteFile(path.db, data, 0644)
-		if err != nil {
-			log.Panic(err)
-		}
+		dbDecrypt()
 	} else if os.IsNotExist(err) {
 		newDb := true
 		regPassword(newDb)
