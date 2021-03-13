@@ -23,9 +23,7 @@ import (
    - The term package is used, specifically the fucntion term.ReadPassword
      which temporarily changes the prompt and reads a password without echo.
 */
-func readPassword(newDb bool) []byte {
-	var confirmPass []byte
-
+func readPassword(newDb bool) (password []byte) {
 	fmt.Printf("Enter Password: ")
 	password, err := term.ReadPassword(syscall.Stdin)
 	if err != nil {
@@ -33,22 +31,18 @@ func readPassword(newDb bool) []byte {
 	}
 
 	if newDb == true {
-		for i := 0; i < 3; i++ {
-			fmt.Printf("\nConfirm Password: ")
-			confirmPass, err = term.ReadPassword(syscall.Stdin)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			if string(password) == string(confirmPass) {
-				break
-			}
+		fmt.Printf("\nConfirm Password: ")
+		confirmPass, err := term.ReadPassword(syscall.Stdin)
+		if err != nil {
+			log.Fatal(err)
 		}
 
 		if string(password) != string(confirmPass) {
-			log.Fatal("Passwords did not match! Please try again.")
+			log.Fatal("\nPasswords did not match! Please try again.")
 
 		}
+
+		fmt.Printf("\nA new tasks db has been created!\n")
 	}
 
 	return password
@@ -99,6 +93,12 @@ func regPassword(newDb bool) {
 */
 func dbEncrypt() {
 	var path Path = *SetPaths()
+	defer func() {
+		if p := recover(); p != nil {
+			fmt.Printf("Encryption Error: %v", p)
+		}
+	}()
+
 	data, err := os.ReadFile(path.db)
 	if err != nil {
 		log.Panic(err)
@@ -149,63 +149,61 @@ func dbEncrypt() {
    the encrypted data.
 
    Implementation details:
-   - There are 3 total attempts to decrypt the file.
-   - A boolean indicating whether the decryption was successful
-     or not is returned.
+   - TODO: Add details
 */
-func dbDecrypt() bool {
+func dbDecrypt() {
 	var path Path = *SetPaths()
-	decSuccess := true
+	defer func() {
+		if p := recover(); p != nil {
+			os.Remove(path.key)
+			fmt.Printf("Decryption Error: %v", p)
+		}
+	}()
+
 	encryptedData, err := os.ReadFile(path.db)
 	if err != nil {
 		log.Panic(err)
 	}
 
-	for i := 0; i < 3; i++ {
-		key, err := os.ReadFile(path.key)
-		if os.IsNotExist(err) {
-			newDB := false
-			regPassword(newDB)
-			key, err = os.ReadFile(path.key)
-		} else if err != nil {
-			log.Panic(err)
-		}
+	decSuccess := true
+	var data []byte
 
-		if err != nil {
-			log.Panic(err)
-		}
+	key, err := os.ReadFile(path.key)
+	if os.IsNotExist(err) {
+		newDB := false
+		regPassword(newDB)
+		key, err = os.ReadFile(path.key)
+	} else if err != nil {
+		log.Panic(err)
+	}
 
-		block, err := aes.NewCipher(key)
-		if err != nil {
-			log.Panic(err)
-		}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		log.Panic(err)
+	}
 
-		gcm, err := cipher.NewGCM(block)
-		if err != nil {
-			log.Panic(err)
-		}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		log.Panic(err)
+	}
 
-		// The nonce value is stored at the beginning of the
-		// encrypted file.
-		nonce := encryptedData[:gcm.NonceSize()]
-		encryptedData = encryptedData[gcm.NonceSize():]
-		data, err := gcm.Open(nil, nonce, encryptedData, nil)
-		if err != nil {
-			decSuccess = false
-			newDB := false
-			log.Printf("Decryption error: %v\n", err)
-			regPassword(newDB)
-			continue
-		}
+	// The nonce value is stored at the beginning of the
+	// encrypted file.
+	nonce := encryptedData[:gcm.NonceSize()]
+	encryptedData = encryptedData[gcm.NonceSize():]
 
+	data, err = gcm.Open(nil, nonce, encryptedData, nil)
+	if err != nil {
+		decSuccess = false
+	}
+
+	if decSuccess == true {
 		err = os.WriteFile(path.db, data, 0644)
 		if err != nil {
 			log.Panic(err)
-		} else {
-			decSuccess = true
-			break
 		}
+	} else if decSuccess == false {
+		os.Remove(path.key)
+		log.Fatal("\nDecryption error!\n")
 	}
-
-	return decSuccess
 }
