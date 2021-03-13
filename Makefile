@@ -4,10 +4,8 @@
 db := ${HOME}/.tasks.db
 key := /dev/shm/.taskdb
 
-files := $(strip $(foreach f,$(filenames),$(wildcard $(f))))
-
 all:
-	go build -o ${GOPATH}/bin/task /home/pxcel/go/src/github.com/dgiampouris/taskcli/main.go
+	go build -o ${GOPATH}/bin/task ${GOPATH}/src/github.com/dgiampouris/taskcli/main.go
 
 .PHONY: clean
 clean:
