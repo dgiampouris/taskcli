@@ -3,11 +3,12 @@ package task
 import (
 	"encoding/binary"
 	"fmt"
-	bolt "go.etcd.io/bbolt"
 	"log"
 	"math"
 	"os"
 	"strconv"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 type Path struct {
@@ -89,6 +90,7 @@ func dbOpen() (db *bolt.DB) {
 	} else if os.IsNotExist(err) {
 		newDb := true
 		regPassword(newDb)
+		fmt.Printf("\nA new task db has been created!\n")
 	}
 
 	db, err := bolt.Open(path.db, 0644, nil)
