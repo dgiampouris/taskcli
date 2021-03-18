@@ -6,46 +6,78 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
-	"golang.org/x/term"
 	"io"
 	"log"
 	"os"
 	"syscall"
+
+	"golang.org/x/term"
 )
 
+// PasswordReader returns password read from a reader
+type PasswordReader interface {
+	ReadPassword() ([]byte, error)
+}
+
+// StdInPasswordReader represents an stdin password reader
+type StdinPasswordReader struct {
+}
+
 /*
-   readPassword reads the inputed user password from the cli (stdin).
+   ReadPassword for StdinPasswordReader reads the
+   password from stdin by using the term package's
+   ReadPassword function which prompts for user input.
+*/
+func (pr StdinPasswordReader) ReadPassword() ([]byte, error) {
+	password, err := term.ReadPassword(syscall.Stdin)
+	return password, err
+}
+
+/*
+   initPassReader assigns the password returned by the passed
+   PasswordReader to the corresponding variables and then
+   returns them.
+*/
+func initPassReader(pr PasswordReader) ([]byte, error) {
+	password, err := pr.ReadPassword()
+	if err != nil {
+		return nil, err
+	}
+	return password, nil
+}
+
+/*
+   ReadPassword receives the inputed user password from initPassReader.
    It accepts a bool var that informs the function if this is a new
    database. If true then the user is prompted to confirm the previously
-   given password. If the confirmation fails, execution ends fatally.
+   given password. If the confirmation fails an error is returned.
 
    Implementation details:
-   - The term package is used, specifically the fucntion term.ReadPassword
-     which temporarily changes the prompt and reads a password without echo.
+   - initPassReader will call whichever ReadPassword method was passed
+     to it altering how the password is fetched. However, the validity
+     checks of the given password should be contained in this function.
 */
-func readPassword(newDb bool) (password []byte) {
+func ReadPassword(newDb bool, pr PasswordReader) (password []byte, err error) {
 	fmt.Printf("Enter Password: ")
-	password, err := term.ReadPassword(syscall.Stdin)
+	password, err = initPassReader(pr)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	if newDb == true {
 		fmt.Printf("\nConfirm Password: ")
-		confirmPass, err := term.ReadPassword(syscall.Stdin)
+		confirmPass, err := initPassReader(pr)
 		if err != nil {
-			log.Fatal(err)
+			return nil, err
 		}
 
 		if string(password) != string(confirmPass) {
-			log.Fatal("\nPasswords did not match! Please try again.")
+			return nil, fmt.Errorf("\nPasswords did not match! Please try again.")
 
 		}
-
-		fmt.Printf("\nA new tasks db has been created!\n")
 	}
 
-	return password
+	return password, err
 }
 
 /*
@@ -71,10 +103,21 @@ func hashPassword(password []byte) []byte {
 */
 func regPassword(newDb bool) {
 	var path Path = *SetPaths()
-	key := hashPassword(readPassword(newDb))
-	err := os.WriteFile(path.key, key, 0600)
+	pr := StdinPasswordReader{}
+
+	password, err := ReadPassword(newDb, pr)
 	if err != nil {
-		log.Panic(err)
+		log.Fatal(err)
+	} else if password == nil {
+		err = fmt.Errorf("\nPassword cannot be blank!\n")
+		log.Fatal(err)
+	}
+
+	key := hashPassword(password)
+
+	err = os.WriteFile(path.key, key, 0600)
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 
