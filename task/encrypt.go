@@ -4,121 +4,81 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"log"
 	"os"
-	"syscall"
-
-	"golang.org/x/term"
 )
 
-// PasswordReader returns password read from a reader
-type PasswordReader interface {
-	ReadPassword() ([]byte, error)
+type DataEncrypt interface {
+	Encrypt(data []byte, key []byte) ([]byte, error)
+	Decrypt(data []byte, key []byte) ([]byte, error)
 }
 
-// StdInPasswordReader represents an stdin password reader
-type StdinPasswordReader struct {
+type DB struct {
 }
 
-/*
-   ReadPassword for StdinPasswordReader reads the
-   password from stdin by using the term package's
-   ReadPassword function which prompts for user input.
-*/
-func (pr StdinPasswordReader) ReadPassword() ([]byte, error) {
-	password, err := term.ReadPassword(syscall.Stdin)
-	return password, err
-}
-
-/*
-   initPassReader assigns the password returned by the passed
-   PasswordReader to the corresponding variables and then
-   returns them.
-*/
-func initPassReader(pr PasswordReader) ([]byte, error) {
-	password, err := pr.ReadPassword()
-	if err != nil {
-		return nil, err
-	}
-	return password, nil
-}
-
-/*
-   ReadPassword receives the inputed user password from initPassReader.
-   It accepts a bool var that informs the function if this is a new
-   database. If true then the user is prompted to confirm the previously
-   given password. If the confirmation fails an error is returned.
-
-   Implementation details:
-   - initPassReader will call whichever ReadPassword method was passed
-     to it altering how the password is fetched. However, the validity
-     checks of the given password should be contained in this function.
-*/
-func ReadPassword(newDb bool, pr PasswordReader) (password []byte, err error) {
-	fmt.Printf("Enter Password: ")
-	password, err = initPassReader(pr)
+func (db DB) Encrypt(data []byte, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
 
-	if newDb == true {
-		fmt.Printf("\nConfirm Password: ")
-		confirmPass, err := initPassReader(pr)
-		if err != nil {
-			return nil, err
-		}
-
-		if string(password) != string(confirmPass) {
-			return nil, fmt.Errorf("\nPasswords did not match! Please try again.")
-
-		}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
 	}
 
-	return password, err
+	// gcm.NonceSize returns the size of the nonce that must be
+	// passed to Seal.
+	// Never use more than 2^32 random nonces with a given key.
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	encryptedData := gcm.Seal(nonce, nonce, data, nil)
+
+	return encryptedData, err
 }
 
-/*
-   hashPassword returns a byte slice of the sha256 hash created from
-   the password inputed by the user.
+func (db DB) Decrypt(encryptedData []byte, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
 
-   Implementation details:
-   - It does not salt the password, it just returns the sha256 equivalent hash.
-*/
-func hashPassword(password []byte) []byte {
-	initHash := sha256.Sum256(password)
-	hash := initHash[:]
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
 
-	return hash
+	// The nonce value is stored at the beginning of the
+	// encrypted file.
+	nonce := encryptedData[:gcm.NonceSize()]
+	encryptedData = encryptedData[gcm.NonceSize():]
+
+	data, err := gcm.Open(nil, nonce, encryptedData, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, err
 }
 
-/*
-   regPassword calls hashPassword and writes the returned key into a a file.
-   It uses SetPaths to get the path where the key is stored.
+func wrapDataEncrypt(db DataEncrypt, action string, data []byte, key []byte) ([]byte, error) {
+	var err error
 
-   Implementation details:
-   - Permissions are set so that only the user can read/write the key file.
-*/
-func regPassword(newDb bool) {
-	var path Path = *SetPaths()
-	pr := StdinPasswordReader{}
-
-	password, err := ReadPassword(newDb, pr)
-	if err != nil {
-		log.Fatal(err)
-	} else if password == nil {
-		err = fmt.Errorf("\nPassword cannot be blank!\n")
-		log.Fatal(err)
+	if action == "encrypt" {
+		data, err = db.Encrypt(data, key)
+	} else if action == "decrypt" {
+		data, err = db.Decrypt(data, key)
+	} else {
+		data = nil
+		err = fmt.Errorf("\nUnknown encryption action choice!\n")
 	}
 
-	key := hashPassword(password)
-
-	err = os.WriteFile(path.key, key, 0600)
-	if err != nil {
-		log.Fatal(err)
-	}
+	return data, err
 }
 
 /*
@@ -136,6 +96,7 @@ func regPassword(newDb bool) {
 */
 func dbEncrypt() {
 	var path Path = *SetPaths()
+	db := DB{}
 	defer func() {
 		if p := recover(); p != nil {
 			fmt.Printf("Encryption Error: %v", p)
@@ -152,25 +113,13 @@ func dbEncrypt() {
 		log.Panic(err)
 	}
 
-	block, err := aes.NewCipher(key)
+	encryptedData, err := wrapDataEncrypt(db, "encrypt", data, key)
 	if err != nil {
-		log.Panic(err)
+		log.Fatal(err)
+	} else if encryptedData == nil {
+		err = fmt.Errorf("\nEncrypted data is nil. Encryption failed!\n")
+		log.Fatal(err)
 	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	// gcm.NonceSize returns the size of the nonce that must be
-	// passed to Seal.
-	// Never use more than 2^32 random nonces with a given key.
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		log.Panic(err)
-	}
-
-	encryptedData := gcm.Seal(nonce, nonce, data, nil)
 
 	err = os.WriteFile(path.db, encryptedData, 0644)
 	if err != nil {
@@ -196,6 +145,7 @@ func dbEncrypt() {
 */
 func dbDecrypt() {
 	var path Path = *SetPaths()
+	db := DB{}
 	defer func() {
 		if p := recover(); p != nil {
 			os.Remove(path.key)
@@ -208,9 +158,6 @@ func dbDecrypt() {
 		log.Panic(err)
 	}
 
-	decSuccess := true
-	var data []byte
-
 	key, err := os.ReadFile(path.key)
 	if os.IsNotExist(err) {
 		newDB := false
@@ -220,32 +167,13 @@ func dbDecrypt() {
 		log.Panic(err)
 	}
 
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	// The nonce value is stored at the beginning of the
-	// encrypted file.
-	nonce := encryptedData[:gcm.NonceSize()]
-	encryptedData = encryptedData[gcm.NonceSize():]
-
-	data, err = gcm.Open(nil, nonce, encryptedData, nil)
-	if err != nil {
-		decSuccess = false
-	}
-
-	if decSuccess == true {
+	data, err := wrapDataEncrypt(db, "decrypt", encryptedData, key)
+	if err == nil {
 		err = os.WriteFile(path.db, data, 0644)
 		if err != nil {
 			log.Panic(err)
 		}
-	} else if decSuccess == false {
+	} else if err != nil {
 		os.Remove(path.key)
 		log.Fatal("\nDecryption error!\n")
 	}
