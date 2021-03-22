@@ -89,12 +89,12 @@ func wrapDataEncrypt(db DataEncrypt, action string, data []byte, key []byte) ([]
    Galois Counter Mode with the standard nonce length is returned.
    After a nonce is created with the proper length, the data is
    encrypted by calling Seal and written back to the filesystem
-   at the path provided by path.db.
+   at the path provided by path.DB.
 
    Implementation details:
    - Should be called with defer in each function that interacts with the db.
 */
-func dbEncrypt() {
+func DbEncrypt() {
 	var path Path = *SetPaths()
 	db := DB{}
 	defer func() {
@@ -103,12 +103,12 @@ func dbEncrypt() {
 		}
 	}()
 
-	data, err := os.ReadFile(path.db)
+	data, err := os.ReadFile(path.DB)
 	if err != nil {
 		log.Panic(err)
 	}
 
-	key, err := os.ReadFile(path.key)
+	key, err := os.ReadFile(path.KEY)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -121,7 +121,7 @@ func dbEncrypt() {
 		log.Fatal(err)
 	}
 
-	err = os.WriteFile(path.db, encryptedData, 0644)
+	err = os.WriteFile(path.DB, encryptedData, 0644)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -143,38 +143,38 @@ func dbEncrypt() {
    Implementation details:
    - TODO: Add details
 */
-func dbDecrypt() {
+func DbDecrypt() {
 	var path Path = *SetPaths()
 	db := DB{}
 	defer func() {
 		if p := recover(); p != nil {
-			os.Remove(path.key)
+			os.Remove(path.KEY)
 			fmt.Printf("Decryption Error: %v", p)
 		}
 	}()
 
-	encryptedData, err := os.ReadFile(path.db)
+	encryptedData, err := os.ReadFile(path.DB)
 	if err != nil {
 		log.Panic(err)
 	}
 
-	key, err := os.ReadFile(path.key)
+	key, err := os.ReadFile(path.KEY)
 	if os.IsNotExist(err) {
 		newDB := false
 		regPassword(newDB)
-		key, err = os.ReadFile(path.key)
+		key, err = os.ReadFile(path.KEY)
 	} else if err != nil {
 		log.Panic(err)
 	}
 
 	data, err := wrapDataEncrypt(db, "decrypt", encryptedData, key)
 	if err == nil {
-		err = os.WriteFile(path.db, data, 0644)
+		err = os.WriteFile(path.DB, data, 0644)
 		if err != nil {
 			log.Panic(err)
 		}
 	} else if err != nil {
-		os.Remove(path.key)
+		os.Remove(path.KEY)
 		log.Fatal("\nDecryption error!\n")
 	}
 }
