@@ -77,13 +77,13 @@ func ReadPassword(newDb bool, pr PasswordReader) (password []byte, err error) {
 }
 
 /*
-   hashPassword returns a byte slice of the sha256 hash created from
+   HashPassword returns a byte slice of the sha256 hash created from
    the password inputed by the user.
 
    Implementation details:
    - It does not salt the password, it just returns the sha256 equivalent hash.
 */
-func hashPassword(password []byte) []byte {
+func HashPassword(password []byte) []byte {
 	initHash := sha256.Sum256(password)
 	hash := initHash[:]
 
@@ -91,7 +91,7 @@ func hashPassword(password []byte) []byte {
 }
 
 /*
-   regPassword calls hashPassword and writes the returned key into a a file.
+   regPassword calls HashPassword and writes the returned key into a a file.
    It uses SetPaths to get the path where the key is stored.
 
    Implementation details:
@@ -109,9 +109,9 @@ func regPassword(newDb bool) {
 		log.Fatal(err)
 	}
 
-	key := hashPassword(password)
+	key := HashPassword(password)
 
-	err = os.WriteFile(path.key, key, 0600)
+	err = os.WriteFile(path.KEY, key, 0600)
 	if err != nil {
 		log.Fatal(err)
 	}
