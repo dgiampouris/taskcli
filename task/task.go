@@ -68,7 +68,9 @@ func itob(val int) []byte {
    to read only. It returns a pointer to a DB type.
 
    Implementation details:
-   - TODO: talk about error handling
+   - In case of recovery a pointer to a DB type is still returned
+     in order for db.Close() (deferred in the other functions) to
+     work.
 */
 func dbOpen() (db *bolt.DB) {
 	var path Path = *SetPaths()
