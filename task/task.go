@@ -3,16 +3,17 @@ package task
 import (
 	"encoding/binary"
 	"fmt"
-	bolt "go.etcd.io/bbolt"
 	"log"
 	"math"
 	"os"
 	"strconv"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 type Path struct {
-	db  string
-	key string
+	DB  string
+	KEY string
 }
 
 /*
@@ -28,7 +29,7 @@ func SetPaths() (path *Path) {
 	defer func() {
 		if p := recover(); p != nil {
 			fmt.Printf("Path Error: %v\n", p)
-			path = &Path{db: "~/.tasks.db", key: "~/.tasksdbkey"}
+			path = &Path{DB: "~/.tasks.db", KEY: "~/.tasksdbkey"}
 		}
 	}()
 
@@ -44,7 +45,7 @@ func SetPaths() (path *Path) {
 	}
 
 	key := "/dev/shm/.taskdb"
-	return &Path{db: db, key: key}
+	return &Path{DB: db, KEY: key}
 }
 
 /*
@@ -67,7 +68,9 @@ func itob(val int) []byte {
    to read only. It returns a pointer to a DB type.
 
    Implementation details:
-   - TODO: talk about error handling
+   - In case of recovery a pointer to a DB type is still returned
+     in order for db.Close() (deferred in the other functions) to
+     work.
 */
 func dbOpen() (db *bolt.DB) {
 	var path Path = *SetPaths()
@@ -84,14 +87,15 @@ func dbOpen() (db *bolt.DB) {
 		}
 	}()
 
-	if _, err := os.Stat(path.db); err == nil {
-		dbDecrypt()
+	if _, err := os.Stat(path.DB); err == nil {
+		DbDecrypt()
 	} else if os.IsNotExist(err) {
 		newDb := true
 		regPassword(newDb)
+		fmt.Printf("\nA new task db has been created!\n")
 	}
 
-	db, err := bolt.Open(path.db, 0644, nil)
+	db, err := bolt.Open(path.DB, 0644, nil)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -116,7 +120,7 @@ func dbOpen() (db *bolt.DB) {
 */
 func AddTask(task string) {
 	db := dbOpen()
-	defer dbEncrypt()
+	defer DbEncrypt()
 	defer db.Close()
 	defer func() {
 		if p := recover(); p != nil {
@@ -166,7 +170,7 @@ func AddTask(task string) {
 */
 func ListTasks() {
 	db := dbOpen()
-	defer dbEncrypt()
+	defer DbEncrypt()
 	defer db.Close()
 	defer func() {
 		if p := recover(); p != nil {
@@ -210,7 +214,7 @@ func ListTasks() {
 */
 func DeleteTask(taskNum string) {
 	db := dbOpen()
-	defer dbEncrypt()
+	defer DbEncrypt()
 	defer db.Close()
 	defer func() {
 		if p := recover(); p != nil {
