@@ -10,14 +10,14 @@ The database is encrypted when at rest and only gets decrypted when you interact
 
 ## Install
 
-Get the package with `go get` and build it with `go build`. Make sure that `$GOPATH/bin` is in your `$PATH`.
+Make sure that `$GOPATH/bin` is in your `$PATH`.
 
 ```
-$ go get github.com/dgiampouris/taskcli
-$ cd $GOPATH/src/github.com/dgiampouris/taskcli
-$ go build -o $GOPATH/bin/task main.go
+go install github.com/dgiampouris/taskcli@latest
 ```
-
+```
+mv $GOPATH/bin/taskcli $GOPATH/bin/task
+```
 ## Usage
 
 Make sure to put any of the given tasks in double quotes (e.g. `"This is an example."`).
