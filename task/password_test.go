@@ -1,10 +1,9 @@
-package tasktest
+package task
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/dgiampouris/taskcli/task"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -29,7 +28,7 @@ func (pr stubPasswordReader) ReadPassword() ([]byte, error) {
 func TestReadPasswordReturnError(t *testing.T) {
 	newDb := false
 	pr := stubPasswordReader{ReturnError: true}
-	result, err := task.ReadPassword(newDb, pr)
+	result, err := ReadPassword(newDb, pr)
 	assert.Error(t, err)
 	assert.Equal(t, errors.New("stubbed error"), err)
 	assert.Equal(t, []byte(nil), result)
@@ -42,7 +41,7 @@ func TestReadPasswordReturnError(t *testing.T) {
 func TestReadPassword(t *testing.T) {
 	newDb := false
 	pr := stubPasswordReader{Password: []byte("password")}
-	result, err := task.ReadPassword(newDb, pr)
+	result, err := ReadPassword(newDb, pr)
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("password"), result)
 }
