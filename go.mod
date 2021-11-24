@@ -1,4 +1,4 @@
-module taskcli
+module github.com/dgiampouris/taskcli
 
 go 1.17
 
