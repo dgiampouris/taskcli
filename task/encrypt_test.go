@@ -1,10 +1,9 @@
-package tasktest
+package task
 
 import (
 	"os"
 	"testing"
 
-	"github.com/dgiampouris/taskcli/task"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,7 +22,7 @@ import (
      took place.
 */
 func TestEncryptDecrypt(t *testing.T) {
-	var path task.Path = *task.SetPaths()
+	var path Path = *SetPaths()
 	password := []byte("password")
 	originData := []byte("data")
 
@@ -33,15 +32,15 @@ func TestEncryptDecrypt(t *testing.T) {
 	_ = os.Remove(path.DB)
 	_ = os.Remove(path.KEY)
 
-	key := task.HashPassword(password)
+	key := HashPassword(password)
 	_ = os.WriteFile(path.KEY, key, 0600)
 	_ = os.WriteFile(path.DB, originData, 0644)
 
-	task.DbEncrypt()
+	DbEncrypt()
 	encData, _ := os.ReadFile(path.DB)
 	assert.NotEqual(t, originData, encData)
 
-	task.DbDecrypt()
+	DbDecrypt()
 	decData, _ := os.ReadFile(path.DB)
 	assert.Equal(t, originData, decData)
 
