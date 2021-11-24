@@ -5,7 +5,7 @@ go 1.17
 require (
 	github.com/dgiampouris/taskcli v0.0.0-20210323134015-3061363d4f73
 	github.com/stretchr/testify v1.7.0
-	github.com/urfave/cli v1.22.5
+	github.com/urfave/cli/v2 v2.3.0
 	go.etcd.io/bbolt v1.3.6
 	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
 )

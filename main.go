@@ -1,10 +1,11 @@
 package main
 
 import (
-	"github.com/dgiampouris/taskcli/task"
-	"github.com/urfave/cli"
 	"log"
 	"os"
+
+	"github.com/dgiampouris/taskcli/task"
+	"github.com/urfave/cli/v2"
 )
 
 /*
